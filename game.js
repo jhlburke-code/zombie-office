@@ -1,8 +1,7 @@
 // Zombie Office — Karlsruhe
 // Top-down 2D office escape. Avoid zombie colleagues; reach the exit.
 // EGA-inspired pixel art via canvas + character-grid sprites.
-// v2: fixed movement (e.code tracking, button blur, focus management),
-//     added Web Audio sound effects.
+// v3: safer spawn, slower zombies, e.key fallback, R reset, visible debug HUD.
 
 (() => {
   'use strict';
@@ -17,14 +16,14 @@
   const COLS = CANVAS_W / TILE_SIZE;     // 30
   const ROWS = CANVAS_H / TILE_SIZE;     // 20
 
-  const PLAYER_SPEED = 1.8;        // px/frame
-  const ZOMBIE_PATROL_SPEED = 0.9; // px/frame
-  const ZOMBIE_CHASE_SPEED = 1.4;   // px/frame
-  const DETECT_RADIUS = 110;        // px — when zombies start chasing
-  const LOSE_SIGHT_RADIUS = 160;    // px — when chasing zombies give up
+  const PLAYER_SPEED = 2.0;        // px/frame
+  const ZOMBIE_PATROL_SPEED = 0.6; // px/frame — slowed so player can actually escape
+  const ZOMBIE_CHASE_SPEED = 0.9;   // px/frame — player outruns in a straight line
+  const DETECT_RADIUS = 90;         // px — tighter, so you can sneak past
+  const LOSE_SIGHT_RADIUS = 200;    // px — wider, so they give up sooner
   const CATCH_RADIUS = 14;          // px — distance for "got caught"
   const SPRITE_SCALE = 2;           // 16×16 sprite rendered at 32×32
-  const STEP_SOUND_EVERY = 14;      // frames between footstep beeps
+  const STEP_SOUND_EVERY = 12;      // frames between footstep beeps
 
   // EGA-ish palette + AIINOD accents. Single char key → CSS color.
   const P = {
@@ -66,12 +65,12 @@
   };
 
   // ============================================================
-  // MAP — 30 cols × 20 rows
+  // MAP — 30 cols × 20 rows. Player X is at top-left (1,1) — safe spawn.
   // ============================================================
 
   const MAP = [
     '##############################',
-    '#                            #',
+    '#X                           #',
     '#  ####        ####          #',
     '#  #DD#        #DD#           #',
     '#  #DD#        #DD#           #',
@@ -79,7 +78,7 @@
     '#                            #',
     '#          P                 #',
     '#                            #',
-    '#  X                          #',
+    '#                            #',
     '#                            #',
     '#     ####        ####        #',
     '#     #MM#        #WW#         #',
@@ -335,10 +334,11 @@
     return pts.map(([x, y]) => ({ x: x * TILE_SIZE + TILE_SIZE / 2, y: y * TILE_SIZE + TILE_SIZE / 2 }));
   }
 
+  // Zombie patrol paths — moved away from player spawn (1,1) so detection radius doesn't trip instantly.
   const ZOMBIE_DEFS = [
-    { name: 'marcus', sprite: 'marcus', displayName: 'MARCUS · Accounting', path: pathOf([3, 3], [13, 3], [13, 6], [3, 6]) },
+    { name: 'marcus', sprite: 'marcus', displayName: 'MARCUS · Accounting', path: pathOf([18, 2], [27, 2], [27, 7], [18, 7]) },
     { name: 'brigitte', sprite: 'brigitte', displayName: 'BRIGITTE · HR', path: pathOf([8, 12], [20, 12], [20, 14], [8, 14]) },
-    { name: 'holger', sprite: 'holger', displayName: 'HOLGER · IT', path: pathOf([6, 9], [25, 9], [25, 17], [6, 17]) },
+    { name: 'holger', sprite: 'holger', displayName: 'HOLGER · IT', path: pathOf([14, 16], [26, 16], [26, 18], [14, 18]) },
   ];
 
   // ============================================================
@@ -355,7 +355,7 @@
   };
 
   // ============================================================
-  // AUDIO — Web Audio API, simple synthesized SFX
+  // AUDIO — Web Audio API
   // ============================================================
 
   let audioCtx = null;
@@ -414,14 +414,12 @@
   function sfxWin()       { beep(523, 90, 'square', 0.09);
                             setTimeout(() => beep(659, 90, 'square', 0.09), 90);
                             setTimeout(() => beep(784, 200, 'square', 0.10), 180); }
-  function sfxCaught()    { sweep(330, 110, 500, 'square', 0.10); }
 
   // ============================================================
-  // INPUT — robust, layout-independent via e.code
+  // INPUT — robust via e.code with e.key fallback
   // ============================================================
 
   const keys = {};
-  let stepSoundAccumulator = 0;
 
   function mapCode(code) {
     switch (code) {
@@ -432,28 +430,43 @@
       case 'Space':                    return 'action';
       case 'KeyE':                     return 'interact';
       case 'KeyM':                     return 'mute';
+      case 'KeyR':                     return 'reset';
+      default: return null;
+    }
+  }
+
+  function mapKey(key) {
+    switch (String(key).toLowerCase()) {
+      case 'w': case 'arrowup':    return 'up';
+      case 's': case 'arrowdown':  return 'down';
+      case 'a': case 'arrowleft':  return 'left';
+      case 'd': case 'arrowright': return 'right';
+      case ' ': case 'spacebar':   return 'action';
+      case 'e':                     return 'interact';
+      case 'm':                     return 'mute';
+      case 'r':                     return 'reset';
       default: return null;
     }
   }
 
   function handleKey(e, isDown) {
-    const action = mapCode(e.code);
+    let action = mapCode(e.code);
+    if (!action) action = mapKey(e.key);
     if (!action) return;
     e.preventDefault();
     keys[action] = isDown;
     if (isDown) {
-      // Initialize audio on first user gesture (browser policy)
       ensureAudio();
-      if (action === 'action') handleActionKey();
+      if (action === 'action')   handleActionKey();
       else if (action === 'interact') handleInteractKey();
-      else if (action === 'mute') toggleMute();
+      else if (action === 'mute')   toggleMute();
+      else if (action === 'reset')  resetPlayer();
     }
   }
 
   document.addEventListener('keydown', (e) => handleKey(e, true));
   document.addEventListener('keyup', (e) => handleKey(e, false));
 
-  // Reset keys when window loses focus — prevents stuck-key bugs
   window.addEventListener('blur', () => {
     for (const k of Object.keys(keys)) keys[k] = false;
   });
@@ -461,6 +474,15 @@
   function toggleMute() {
     audioMuted = !audioMuted;
     document.getElementById('hud-mute').textContent = audioMuted ? '🔇 MUTED' : '🔊 SOUND ON';
+  }
+
+  function resetPlayer() {
+    initGameState();
+    if (game.state !== 'playing') game.state = 'playing';
+    document.getElementById('overlay-caught').hidden = true;
+    document.getElementById('overlay-win').hidden = true;
+    document.getElementById('overlay-dialogue').hidden = true;
+    hideDialogue();
   }
 
   function handleActionKey() {
@@ -515,7 +537,7 @@
   }
 
   function initGameState() {
-    const start = findTile('X') || { x: 2, y: 9 };
+    const start = findTile('X') || { x: 1, y: 1 };
     game.player.x = start.x * TILE_SIZE + TILE_SIZE / 2;
     game.player.y = start.y * TILE_SIZE + TILE_SIZE / 2;
     game.player.dir = 'down';
@@ -880,7 +902,54 @@
       }
     }
 
+    drawDebugHUD();
     updateHUD();
+  }
+
+  function drawDebugHUD() {
+    const heldKeys = [];
+    if (keys.up)    heldKeys.push('W');
+    if (keys.down)  heldKeys.push('S');
+    if (keys.left)  heldKeys.push('A');
+    if (keys.right) heldKeys.push('D');
+    const keysStr = heldKeys.length ? heldKeys.join('') : '—';
+
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(8, 8, 220, 38);
+    ctx.fillStyle = '#F7D14B';
+    ctx.fillText('STATE', 14, 14);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(game.state.toUpperCase(), 80, 14);
+    ctx.fillStyle = '#F7D14B';
+    ctx.fillText('KEYS', 14, 30);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(keysStr, 80, 30);
+
+    const cx = CANVAS_W - 70, cy = 12;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.fillRect(cx - 4, cy - 4, 66, 50);
+    drawKey(cx + 18, cy,     'W', keys.up);
+    drawKey(cx,     cy + 18, 'A', keys.left);
+    drawKey(cx + 36, cy + 18, 'D', keys.right);
+    drawKey(cx + 18, cy + 36, 'S', keys.down);
+  }
+
+  function drawKey(x, y, label, pressed) {
+    ctx.fillStyle = pressed ? '#CC2229' : '#3a3a3a';
+    ctx.fillRect(x - 8, y - 8, 16, 16);
+    ctx.strokeStyle = pressed ? '#F7D14B' : '#666060';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 8, y - 8, 16, 16);
+    ctx.fillStyle = pressed ? '#FFFFFF' : '#888';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
   }
 
   function updateHUD() {
