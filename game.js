@@ -1,7 +1,8 @@
 // Zombie Office — Karlsruhe
 // Top-down 2D office escape. Avoid zombie colleagues; reach the exit.
 // EGA-inspired pixel art via canvas + character-grid sprites.
-// v3: safer spawn, slower zombies, e.key fallback, R reset, visible debug HUD.
+// v4: ultra-robust input (multi-target capture phase) + huge on-screen
+//     keypress flash so the user can SEE if their keys are landing.
 
 (() => {
   'use strict';
@@ -16,57 +17,24 @@
   const COLS = CANVAS_W / TILE_SIZE;     // 30
   const ROWS = CANVAS_H / TILE_SIZE;     // 20
 
-  const PLAYER_SPEED = 2.0;        // px/frame
-  const ZOMBIE_PATROL_SPEED = 0.6; // px/frame — slowed so player can actually escape
-  const ZOMBIE_CHASE_SPEED = 0.9;   // px/frame — player outruns in a straight line
-  const DETECT_RADIUS = 90;         // px — tighter, so you can sneak past
-  const LOSE_SIGHT_RADIUS = 200;    // px — wider, so they give up sooner
-  const CATCH_RADIUS = 14;          // px — distance for "got caught"
-  const SPRITE_SCALE = 2;           // 16×16 sprite rendered at 32×32
-  const STEP_SOUND_EVERY = 12;      // frames between footstep beeps
+  const PLAYER_SPEED = 2.0;
+  const ZOMBIE_PATROL_SPEED = 0.6;
+  const ZOMBIE_CHASE_SPEED = 0.9;
+  const DETECT_RADIUS = 90;
+  const LOSE_SIGHT_RADIUS = 200;
+  const CATCH_RADIUS = 14;
+  const SPRITE_SCALE = 2;
+  const STEP_SOUND_EVERY = 12;
 
-  // EGA-ish palette + AIINOD accents. Single char key → CSS color.
   const P = {
-    ' ': null,           // transparent
-    '0': '#000000',      // black
-    '1': '#1B3A6B',      // navy (brand)
-    '2': '#142d54',      // navy deep
-    '3': '#CC2229',      // red (brand)
-    '4': '#F7D14B',      // gold / yellow
-    '5': '#7AA84D',      // plant green
-    '6': '#3D6B2A',      // dark green
-    '7': '#C4A484',      // skin
-    '8': '#D6BBA0',      // skin light
-    '9': '#FFFFFF',      // white
-    'A': '#5C5C5C',      // dark gray
-    'B': '#8A8A8A',      // mid gray
-    'C': '#C0C0C0',      // light gray
-    'D': '#404040',      // very dark (desk legs)
-    'E': '#C77B40',      // orange (desk wood)
-    'F': '#9C5028',      // dark wood
-    'G': '#5BC8D5',      // cyan (eyes / monitor)
-    'H': '#1a3a7a',      // monitor frame
-    'I': '#3D2914',      // dark brown (pot)
-    'J': '#A04040',      // maroon (Brigitte's blazer)
-    'K': '#9D7BB0',      // purple (Holger's shirt)
-    'L': '#4040A0',      // dark blue (IT shirt)
-    'M': '#9C6644',      // leather brown (briefcase)
-    'N': '#CCAA66',      // mustard (notebook)
-    'O': '#666060',      // wall cubicle
-    'P': '#7AA84D',      // plant green alt
-    'Q': '#F0F0F0',      // very light
-    'R': '#222222',      // near black
-    'S': '#3D8B8B',      // teal
-    'T': '#8B4513',      // brown wood alt
-    'U': '#CC2229',      // red accent
-    'V': '#5C5C5C',      // gray
-    'W': '#FFFFFF',      // white
-    'X': '#000000',      // pure black
+    ' ': null, '0': '#000000', '1': '#1B3A6B', '2': '#142d54', '3': '#CC2229',
+    '4': '#F7D14B', '5': '#7AA84D', '6': '#3D6B2A', '7': '#C4A484', '8': '#D6BBA0',
+    '9': '#FFFFFF', 'A': '#5C5C5C', 'B': '#8A8A8A', 'C': '#C0C0C0', 'D': '#404040',
+    'E': '#C77B40', 'F': '#9C5028', 'G': '#5BC8D5', 'H': '#1a3a7a', 'I': '#3D2914',
+    'J': '#A04040', 'K': '#9D7BB0', 'L': '#4040A0', 'M': '#9C6644', 'N': '#CCAA66',
+    'O': '#666060', 'P': '#7AA84D', 'Q': '#F0F0F0', 'R': '#222222', 'S': '#3D8B8B',
+    'T': '#8B4513', 'U': '#CC2229', 'V': '#5C5C5C', 'W': '#FFFFFF', 'X': '#000000',
   };
-
-  // ============================================================
-  // MAP — 30 cols × 20 rows. Player X is at top-left (1,1) — safe spawn.
-  // ============================================================
 
   const MAP = [
     '##############################',
@@ -92,10 +60,6 @@
   ];
 
   const WALKABLE = new Set(['.', 'X', 'E', 'P', 'C']);
-
-  // ============================================================
-  // SPRITES — 16x16 character grids. ' ' = transparent.
-  // ============================================================
 
   const PLAYER_DOWN_1 = [
     '.....000000.....',
@@ -236,10 +200,6 @@
     holger: [Z_HOLGER_1, Z_HOLGER_1],
   };
 
-  // ============================================================
-  // SPRITE PRERENDER
-  // ============================================================
-
   const SPRITE_CACHE = {};
 
   function prerenderSprite(grid, scale) {
@@ -281,10 +241,6 @@
     }
     return SPRITE_CACHE[key];
   }
-
-  // ============================================================
-  // DIALOGUE
-  // ============================================================
 
   const DIALOGUE = {
     marcus: [
@@ -334,16 +290,11 @@
     return pts.map(([x, y]) => ({ x: x * TILE_SIZE + TILE_SIZE / 2, y: y * TILE_SIZE + TILE_SIZE / 2 }));
   }
 
-  // Zombie patrol paths — moved away from player spawn (1,1) so detection radius doesn't trip instantly.
   const ZOMBIE_DEFS = [
     { name: 'marcus', sprite: 'marcus', displayName: 'MARCUS · Accounting', path: pathOf([18, 2], [27, 2], [27, 7], [18, 7]) },
     { name: 'brigitte', sprite: 'brigitte', displayName: 'BRIGITTE · HR', path: pathOf([8, 12], [20, 12], [20, 14], [8, 14]) },
     { name: 'holger', sprite: 'holger', displayName: 'HOLGER · IT', path: pathOf([14, 16], [26, 16], [26, 18], [14, 18]) },
   ];
-
-  // ============================================================
-  // GAME STATE
-  // ============================================================
 
   const game = {
     state: 'title',
@@ -353,10 +304,6 @@
     activeDialogue: null,
     meetingsAvoided: 0,
   };
-
-  // ============================================================
-  // AUDIO — Web Audio API
-  // ============================================================
 
   let audioCtx = null;
   let audioMuted = false;
@@ -408,18 +355,22 @@
     osc.stop(now + dur);
   }
 
-  function sfxStep()      { beep(90, 35, 'square', 0.04); }
-  function sfxTalk()      { beep(440, 60, 'square', 0.08); }
-  function sfxCatch()     { sweep(220, 80, 700, 'sawtooth', 0.10); }
-  function sfxWin()       { beep(523, 90, 'square', 0.09);
-                            setTimeout(() => beep(659, 90, 'square', 0.09), 90);
-                            setTimeout(() => beep(784, 200, 'square', 0.10), 180); }
+  function sfxStep()  { beep(90, 35, 'square', 0.04); }
+  function sfxTalk()  { beep(440, 60, 'square', 0.08); }
+  function sfxCatch() { sweep(220, 80, 700, 'sawtooth', 0.10); }
+  function sfxWin()   { beep(523, 90, 'square', 0.09);
+                       setTimeout(() => beep(659, 90, 'square', 0.09), 90);
+                       setTimeout(() => beep(784, 200, 'square', 0.10), 180); }
 
   // ============================================================
-  // INPUT — robust via e.code with e.key fallback
+  // INPUT — multi-target capture-phase + on-canvas flash
   // ============================================================
 
   const keys = {};
+  let keyFlash = null;
+  function flashKey(label) {
+    keyFlash = label ? { label, until: performance.now() + 700 } : null;
+  }
 
   function mapCode(code) {
     switch (code) {
@@ -457,6 +408,8 @@
     keys[action] = isDown;
     if (isDown) {
       ensureAudio();
+      flashKey(action.toUpperCase());
+      try { console.log('[Pulse] key:', e.code, '→', action); } catch (_) {}
       if (action === 'action')   handleActionKey();
       else if (action === 'interact') handleInteractKey();
       else if (action === 'mute')   toggleMute();
@@ -464,8 +417,11 @@
     }
   }
 
-  document.addEventListener('keydown', (e) => handleKey(e, true));
-  document.addEventListener('keyup', (e) => handleKey(e, false));
+  ['keydown', 'keyup'].forEach((evt) => {
+    const handler = (e) => handleKey(e, evt === 'keydown');
+    window.addEventListener(evt, handler, { capture: true, passive: false });
+    document.addEventListener(evt, handler, { capture: true, passive: false });
+  });
 
   window.addEventListener('blur', () => {
     for (const k of Object.keys(keys)) keys[k] = false;
@@ -590,10 +546,6 @@
     }
     return null;
   }
-
-  // ============================================================
-  // MOVEMENT + COLLISION
-  // ============================================================
 
   function isWalkable(px, py) {
     const col = Math.floor(px / TILE_SIZE);
@@ -783,98 +735,63 @@
         ctx.fillRect(x + 24, y + 26, 2, 2);
       }
     }
-
     switch (ch) {
       case '#':
-        ctx.fillStyle = '#3D2914';
-        ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-        ctx.fillStyle = '#5C3D24';
-        ctx.fillRect(x, y, TILE_SIZE, 6);
+        ctx.fillStyle = '#3D2914'; ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        ctx.fillStyle = '#5C3D24'; ctx.fillRect(x, y, TILE_SIZE, 6);
         ctx.fillStyle = '#2D1A0A';
-        for (let i = 6; i < TILE_SIZE; i += 8) {
-          ctx.fillRect(x, y + i, TILE_SIZE, 1);
-        }
+        for (let i = 6; i < TILE_SIZE; i += 8) ctx.fillRect(x, y + i, TILE_SIZE, 1);
         break;
       case 'D':
-        ctx.fillStyle = '#9C6644';
-        ctx.fillRect(x + 2, y + 4, TILE_SIZE - 4, TILE_SIZE - 10);
-        ctx.fillStyle = '#7C4F30';
-        ctx.fillRect(x + 2, y + TILE_SIZE - 8, TILE_SIZE - 4, 2);
-        ctx.fillStyle = '#1a3a7a';
-        ctx.fillRect(x + 8, y + 8, 14, 10);
-        ctx.fillStyle = '#5BC8D5';
-        ctx.fillRect(x + 10, y + 10, 10, 6);
-        ctx.fillStyle = '#404040';
-        ctx.fillRect(x + 4, y + 22, 22, 5);
+        ctx.fillStyle = '#9C6644'; ctx.fillRect(x + 2, y + 4, TILE_SIZE - 4, TILE_SIZE - 10);
+        ctx.fillStyle = '#7C4F30'; ctx.fillRect(x + 2, y + TILE_SIZE - 8, TILE_SIZE - 4, 2);
+        ctx.fillStyle = '#1a3a7a'; ctx.fillRect(x + 8, y + 8, 14, 10);
+        ctx.fillStyle = '#5BC8D5'; ctx.fillRect(x + 10, y + 10, 10, 6);
+        ctx.fillStyle = '#404040'; ctx.fillRect(x + 4, y + 22, 22, 5);
         ctx.fillStyle = '#5C5C5C';
-        ctx.fillRect(x + 5, y + 23, 20, 1);
-        ctx.fillRect(x + 5, y + 25, 20, 1);
+        ctx.fillRect(x + 5, y + 23, 20, 1); ctx.fillRect(x + 5, y + 25, 20, 1);
         break;
       case 'M':
-        ctx.fillStyle = '#7C4F30';
-        ctx.fillRect(x + 2, y + 4, TILE_SIZE - 4, TILE_SIZE - 8);
+        ctx.fillStyle = '#7C4F30'; ctx.fillRect(x + 2, y + 4, TILE_SIZE - 4, TILE_SIZE - 8);
         ctx.fillStyle = '#5C3D24';
         ctx.fillRect(x + 2, y + 4, TILE_SIZE - 4, 2);
         ctx.fillRect(x + 2, y + TILE_SIZE - 6, TILE_SIZE - 4, 2);
-        ctx.fillStyle = '#CCAA66';
-        ctx.fillRect(x + 12, y + 14, 8, 4);
+        ctx.fillStyle = '#CCAA66'; ctx.fillRect(x + 12, y + 14, 8, 4);
         break;
       case 'W':
-        ctx.fillStyle = '#8A8A8A';
-        ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 6);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 10);
+        ctx.fillStyle = '#8A8A8A'; ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 6);
+        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 10);
         ctx.fillStyle = '#CC2229';
-        ctx.fillRect(x + 6, y + 8, 8, 1);
-        ctx.fillRect(x + 16, y + 10, 6, 1);
-        ctx.fillStyle = '#1B3A6B';
-        ctx.fillRect(x + 8, y + 16, 12, 1);
-        ctx.fillStyle = '#404040';
-        ctx.fillRect(x + 6, y + 22, 16, 1);
+        ctx.fillRect(x + 6, y + 8, 8, 1); ctx.fillRect(x + 16, y + 10, 6, 1);
+        ctx.fillStyle = '#1B3A6B'; ctx.fillRect(x + 8, y + 16, 12, 1);
+        ctx.fillStyle = '#404040'; ctx.fillRect(x + 6, y + 22, 16, 1);
         break;
       case 'P':
-        ctx.fillStyle = '#3D2914';
-        ctx.fillRect(x + 10, y + 22, 12, 8);
-        ctx.fillStyle = '#5C3D24';
-        ctx.fillRect(x + 10, y + 22, 12, 2);
+        ctx.fillStyle = '#3D2914'; ctx.fillRect(x + 10, y + 22, 12, 8);
+        ctx.fillStyle = '#5C3D24'; ctx.fillRect(x + 10, y + 22, 12, 2);
         ctx.fillStyle = '#3D6B2A';
-        ctx.fillRect(x + 8, y + 14, 4, 8);
-        ctx.fillRect(x + 14, y + 8, 6, 12);
-        ctx.fillRect(x + 20, y + 12, 4, 10);
+        ctx.fillRect(x + 8, y + 14, 4, 8); ctx.fillRect(x + 14, y + 8, 6, 12); ctx.fillRect(x + 20, y + 12, 4, 10);
         ctx.fillStyle = '#7AA84D';
-        ctx.fillRect(x + 9, y + 15, 2, 6);
-        ctx.fillRect(x + 16, y + 10, 2, 10);
-        ctx.fillStyle = '#5A8A3D';
-        ctx.fillRect(x + 21, y + 13, 2, 6);
+        ctx.fillRect(x + 9, y + 15, 2, 6); ctx.fillRect(x + 16, y + 10, 2, 10);
+        ctx.fillStyle = '#5A8A3D'; ctx.fillRect(x + 21, y + 13, 2, 6);
         break;
       case 'C':
-        ctx.fillStyle = '#404040';
-        ctx.fillRect(x + 8, y + 4, 16, 24);
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(x + 8, y + 4, 16, 4);
-        ctx.fillStyle = '#5BC8D5';
-        ctx.fillRect(x + 12, y + 14, 8, 4);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(x + 12, y + 18, 8, 6);
-        ctx.fillStyle = '#3D2914';
-        ctx.fillRect(x + 13, y + 19, 6, 3);
-        ctx.fillStyle = '#CC2229';
-        ctx.fillRect(x + 22, y + 6, 2, 2);
+        ctx.fillStyle = '#404040'; ctx.fillRect(x + 8, y + 4, 16, 24);
+        ctx.fillStyle = '#1a1a1a'; ctx.fillRect(x + 8, y + 4, 16, 4);
+        ctx.fillStyle = '#5BC8D5'; ctx.fillRect(x + 12, y + 14, 8, 4);
+        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(x + 12, y + 18, 8, 6);
+        ctx.fillStyle = '#3D2914'; ctx.fillRect(x + 13, y + 19, 6, 3);
+        ctx.fillStyle = '#CC2229'; ctx.fillRect(x + 22, y + 6, 2, 2);
         break;
       case 'E':
-        ctx.fillStyle = '#9C6644';
-        ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        ctx.fillStyle = '#9C6644'; ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
         ctx.fillStyle = '#7C4F30';
         ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, 3);
         ctx.fillRect(x + 2, y + TILE_SIZE - 5, TILE_SIZE - 4, 3);
-        ctx.fillStyle = '#CC2229';
-        ctx.fillRect(x + 6, y + 6, TILE_SIZE - 12, 6);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(x + 8, y + 8, 2, 2);
-        ctx.fillStyle = '#F7D14B';
-        ctx.fillRect(x + TILE_SIZE - 8, y + TILE_SIZE / 2, 2, 4);
-        ctx.fillStyle = '#404040';
-        ctx.fillRect(x + 22, y + 8, 4, 2);
+        ctx.fillStyle = '#CC2229'; ctx.fillRect(x + 6, y + 6, TILE_SIZE - 12, 6);
+        ctx.fillStyle = '#FFFFFF'; ctx.fillRect(x + 8, y + 8, 2, 2);
+        ctx.fillStyle = '#F7D14B'; ctx.fillRect(x + TILE_SIZE - 8, y + TILE_SIZE / 2, 2, 4);
+        ctx.fillStyle = '#404040'; ctx.fillRect(x + 22, y + 8, 4, 2);
         break;
     }
   }
@@ -886,10 +803,8 @@
   function render() {
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
     drawMap();
-
     const drawables = [...game.zombies, { isPlayer: true, x: game.player.x, y: game.player.y, dir: game.player.dir, walkFrame: game.player.walkFrame }];
     drawables.sort((a, b) => a.y - b.y);
-
     for (const e of drawables) {
       if (e.isPlayer) {
         drawSpriteCentered(getPlayerSprite(e.dir, e.walkFrame), e.x, e.y);
@@ -901,9 +816,28 @@
         }
       }
     }
-
+    drawKeyFlash();
     drawDebugHUD();
     updateHUD();
+  }
+
+  function drawKeyFlash() {
+    if (!keyFlash) return;
+    if (performance.now() > keyFlash.until) { keyFlash = null; return; }
+    const remaining = (keyFlash.until - performance.now()) / 700;
+    const alpha = Math.min(1, remaining * 2);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = '48px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(CANVAS_W / 2 - 220, CANVAS_H / 2 - 60, 440, 100);
+    ctx.fillStyle = '#F7D14B';
+    ctx.fillText('KEY  ' + keyFlash.label, CANVAS_W / 2 + 2, CANVAS_H / 2 + 2);
+    ctx.fillStyle = '#CC2229';
+    ctx.fillText('KEY  ' + keyFlash.label, CANVAS_W / 2, CANVAS_H / 2);
+    ctx.restore();
   }
 
   function drawDebugHUD() {
@@ -919,14 +853,10 @@
     ctx.textBaseline = 'top';
     ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
     ctx.fillRect(8, 8, 220, 38);
-    ctx.fillStyle = '#F7D14B';
-    ctx.fillText('STATE', 14, 14);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(game.state.toUpperCase(), 80, 14);
-    ctx.fillStyle = '#F7D14B';
-    ctx.fillText('KEYS', 14, 30);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(keysStr, 80, 30);
+    ctx.fillStyle = '#F7D14B'; ctx.fillText('STATE', 14, 14);
+    ctx.fillStyle = '#FFFFFF'; ctx.fillText(game.state.toUpperCase(), 80, 14);
+    ctx.fillStyle = '#F7D14B'; ctx.fillText('KEYS', 14, 30);
+    ctx.fillStyle = '#FFFFFF'; ctx.fillText(keysStr, 80, 30);
 
     const cx = CANVAS_W - 70, cy = 12;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
@@ -963,26 +893,13 @@
       }
     }
     const statusEl = document.getElementById('hud-status');
-    if (bestDist < 60) {
-      statusEl.textContent = 'IN DANGER';
-      statusEl.style.color = '#CC2229';
-    } else if (nearestAlert > 0) {
-      statusEl.textContent = 'being watched';
-      statusEl.style.color = '#F7D14B';
-    } else if (bestDist < 200) {
-      statusEl.textContent = 'nervous';
-      statusEl.style.color = '#FFFFFF';
-    } else {
-      statusEl.textContent = 'alive';
-      statusEl.style.color = '#FFFFFF';
-    }
+    if (bestDist < 60) { statusEl.textContent = 'IN DANGER'; statusEl.style.color = '#CC2229'; }
+    else if (nearestAlert > 0) { statusEl.textContent = 'being watched'; statusEl.style.color = '#F7D14B'; }
+    else if (bestDist < 200) { statusEl.textContent = 'nervous'; statusEl.style.color = '#FFFFFF'; }
+    else { statusEl.textContent = 'alive'; statusEl.style.color = '#FFFFFF'; }
     document.getElementById('hud-nearest').textContent =
       bestDist < 600 ? nearestName + ' (' + Math.round(bestDist) + ')' : '—';
   }
-
-  // ============================================================
-  // MAIN LOOP
-  // ============================================================
 
   function loop() {
     if (game.state === 'playing') {
@@ -993,10 +910,6 @@
     render();
     requestAnimationFrame(loop);
   }
-
-  // ============================================================
-  // BOOT
-  // ============================================================
 
   initGameState();
   document.getElementById('hud-mute').textContent = audioMuted ? '🔇 MUTED' : '🔊 SOUND ON';
