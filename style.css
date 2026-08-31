@@ -132,6 +132,8 @@ canvas {
   image-rendering: crisp-edges;
 }
 
+canvas:focus { outline: none; }
+
 /* ----- Overlays ----- */
 
 .overlay {
@@ -315,6 +317,13 @@ canvas {
 .footer-center { flex: 1; text-align: center; }
 .hud-label { color: var(--white-subtle); margin-right: 8px; }
 .hud-value { color: var(--white); font-weight: 700; }
+.hud-mute {
+  margin-left: 14px;
+  color: var(--white-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.hud-mute:hover { color: var(--white); }
 
 /* ----- Responsive ----- */
 
