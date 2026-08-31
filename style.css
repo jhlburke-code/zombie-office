@@ -1,0 +1,332 @@
+/* Zombie Office — Karlsruhe
+   EGA-inspired pixel art aesthetic. Brand: AIINOD (navy + red).
+*/
+
+:root {
+  --navy: #1B3A6B;
+  --navy-deep: #142d54;
+  --red: #CC2229;
+  --red-hover: #d9242d;
+  --white: #FFFFFF;
+  --white-muted: rgba(255,255,255,0.68);
+  --white-subtle: rgba(255,255,255,0.18);
+  --white-faint: rgba(255,255,255,0.10);
+  --red-soft: rgba(204,34,41,0.38);
+  --red-softer: rgba(204,34,41,0.16);
+  --pixel-font: 'Press Start 2P', monospace;
+  --body-font: 'Urbanist', 'Montserrat', Arial, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--body-font);
+  background: var(--navy);
+  color: var(--white);
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 16px 16px 24px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ----- AIINOD brand chrome ----- */
+
+.red-bar {
+  position: fixed;
+  top: 0; bottom: 0; left: 0;
+  width: 8px;
+  background: var(--red);
+  z-index: 100;
+}
+
+.slogan { font-size: 16px; line-height: 1; }
+.s-ai { font-weight: 800; color: var(--white); }
+.s-made { font-weight: 300; color: var(--white-muted); }
+.s-human { font-weight: 800; color: var(--red); }
+.s-dot { font-weight: 300; color: var(--white-subtle); }
+
+/* ----- Frame ----- */
+
+.game-frame {
+  width: 100%;
+  max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.game-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 8px 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.logo-mark {
+  width: 24px; height: 24px;
+  background: var(--red);
+  border-radius: 50%;
+  position: relative;
+}
+.logo-mark::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  background: var(--white);
+  border-radius: 50%;
+}
+.brand-name {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--white-muted);
+}
+
+.game-title {
+  font-family: var(--pixel-font);
+  font-size: 18px;
+  color: var(--red);
+  text-shadow: 2px 2px 0 var(--navy-deep);
+  flex: 1;
+  text-align: center;
+}
+
+.game-subtitle {
+  font-family: var(--pixel-font);
+  font-size: 9px;
+  color: var(--white-subtle);
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+
+/* ----- Canvas ----- */
+
+.canvas-wrap {
+  position: relative;
+  background: #000;
+  border: 2px solid var(--red);
+  border-radius: 4px;
+  box-shadow: 0 0 0 4px var(--navy), 0 8px 24px rgba(0,0,0,0.4);
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* ----- Overlays ----- */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 45, 84, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px;
+  gap: 18px;
+  z-index: 10;
+}
+.overlay[hidden] { display: none; }
+
+.overlay-title {
+  font-family: var(--pixel-font);
+  font-size: 32px;
+  color: var(--red);
+  text-shadow: 3px 3px 0 var(--navy-deep);
+  letter-spacing: 0.05em;
+  line-height: 1.1;
+}
+
+.overlay-tagline {
+  font-family: var(--pixel-font);
+  font-size: 11px;
+  color: var(--white-muted);
+  letter-spacing: 0.1em;
+}
+
+.overlay-brief {
+  max-width: 540px;
+  font-size: 16px;
+  font-weight: 300;
+  color: var(--white);
+  line-height: 1.6;
+}
+.overlay-brief p { margin-bottom: 6px; }
+
+.overlay-controls {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--white-subtle);
+  border-radius: 4px;
+  padding: 14px 22px;
+  font-family: var(--pixel-font);
+  font-size: 10px;
+  color: var(--white-muted);
+  line-height: 2;
+  letter-spacing: 0.05em;
+}
+.overlay-controls b { color: var(--red); }
+
+.btn-start {
+  margin-top: 14px;
+  background: var(--red);
+  border: none;
+  color: var(--white);
+  padding: 14px 24px;
+  border-radius: 4px;
+  font-family: var(--pixel-font);
+  font-size: 12px;
+  cursor: pointer;
+  animation: blink 1.6s infinite;
+  letter-spacing: 0.1em;
+}
+.btn-start:hover { background: var(--red-hover); }
+@keyframes blink { 50% { opacity: 0.6; } }
+
+/* Dialogue overlay */
+.overlay-dialogue {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 20px;
+  background: rgba(0, 0, 0, 0.92);
+  border: 3px solid var(--red);
+  border-radius: 6px;
+  padding: 16px 22px;
+  z-index: 8;
+  font-family: var(--pixel-font);
+  color: var(--white);
+}
+.overlay-dialogue[hidden] { display: none; }
+.dialogue-name {
+  font-size: 11px;
+  color: var(--red);
+  margin-bottom: 10px;
+  letter-spacing: 0.05em;
+}
+.dialogue-text {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--white);
+  min-height: 60px;
+}
+.dialogue-hint {
+  font-size: 8px;
+  color: var(--white-subtle);
+  margin-top: 12px;
+  letter-spacing: 0.15em;
+  text-align: right;
+}
+
+/* Caught / meeting screen */
+.overlay-caught {
+  position: absolute;
+  inset: 0;
+  background: rgba(60, 8, 10, 0.96);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px;
+  gap: 14px;
+  z-index: 10;
+  font-family: var(--pixel-font);
+}
+.overlay-caught[hidden] { display: none; }
+.caught-title {
+  color: var(--white);
+  text-shadow: 3px 3px 0 #4a0a0d;
+}
+.meeting-meta {
+  font-size: 10px;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 0.05em;
+  line-height: 1.8;
+}
+.meeting-meta b { color: var(--white); }
+.meeting-agenda-list {
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 4px;
+  padding: 14px 22px;
+  font-size: 9px;
+  color: rgba(255,255,255,0.85);
+  max-width: 540px;
+  width: 100%;
+  text-align: left;
+  letter-spacing: 0.03em;
+  line-height: 1.8;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.meeting-agenda-list li { list-style: decimal inside; }
+.meeting-agenda-list li.done { color: rgba(255,255,255,0.4); text-decoration: line-through; }
+
+/* Win screen */
+.overlay-win {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 45, 84, 0.96);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px;
+  gap: 14px;
+  z-index: 10;
+}
+.overlay-win[hidden] { display: none; }
+.overlay-win .overlay-title { color: var(--white); }
+
+/* ----- Footer / HUD ----- */
+
+.game-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 8px 4px;
+  font-family: var(--pixel-font);
+  font-size: 9px;
+  color: var(--white-muted);
+  letter-spacing: 0.1em;
+}
+.footer-center { flex: 1; text-align: center; }
+.hud-label { color: var(--white-subtle); margin-right: 8px; }
+.hud-value { color: var(--white); font-weight: 700; }
+
+/* ----- Responsive ----- */
+
+@media (max-width: 760px) {
+  body { padding: 8px 8px 8px 16px; }
+  .game-title { font-size: 14px; }
+  .game-subtitle { display: none; }
+  .brand-name { display: none; }
+  .overlay { padding: 24px; }
+  .overlay-title { font-size: 22px; }
+  .overlay-brief { font-size: 14px; }
+  .overlay-controls { font-size: 8px; padding: 10px 16px; }
+  .game-footer { font-size: 8px; gap: 8px; }
+  .slogan { font-size: 12px; }
+}
