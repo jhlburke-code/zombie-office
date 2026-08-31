@@ -11,6 +11,17 @@ Get to the exit before one of them pulls you into a standup.
 - **WASD / Arrow keys** — move
 - **Space / Click** — talk to the nearest colleague (when in range)
 - **E** — interact with the exit door (when in range)
+- **M** — toggle sound
+
+## Sound
+
+All SFX are synthesised at runtime via the Web Audio API — no asset files, zero load time:
+- Footstep beep while walking
+- Short blip when dialogue opens or advances
+- Descending sweep when you get caught (4h meeting incoming)
+- Ascending 3-note chime when you escape
+
+The audio context initializes on your first keypress or click (browser autoplay policy). Press **M** to mute/unmute — state shown in the bottom-left HUD.
 
 ## Stack
 
@@ -19,6 +30,7 @@ Get to the exit before one of them pulls you into a standup.
 - EGA-inspired pixel art (character-grid sprites rendered to offscreen canvases, scaled with `image-rendering: pixelated`)
 - Press Start 2P for UI typography, Urbanist for body
 - AIINOD brand chrome: navy + red, 8px left bar, slogan
+- Web Audio API for synthesised SFX
 - Zero build step, zero dependencies, zero backend
 
 ## Cast
@@ -45,4 +57,4 @@ No build. No deps. Pure vanilla.
 
 - `index.html` — page structure, overlays (title, dialogue, caught, win), HUD
 - `style.css` — AIINOD chrome, pixel-art typography, overlays
-- `game.js` — canvas rendering, sprites, map, zombie AI, dialogue, game loop
+- `game.js` — canvas rendering, sprites, map, zombie AI, dialogue, game loop, Web Audio SFX
