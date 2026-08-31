@@ -24,7 +24,7 @@
     </header>
 
     <div class="canvas-wrap">
-      <canvas id="game" width="960" height="640"></canvas>
+      <canvas id="game" width="960" height="640" tabindex="0"></canvas>
 
       <!-- Title screen overlay -->
       <div class="overlay" id="overlay-title">
@@ -40,6 +40,7 @@
           <p><b>WASD / Arrows</b> — move</p>
           <p><b>Space / Click</b> — talk to a colleague</p>
           <p><b>E</b> — interact (door, exit)</p>
+          <p><b>M</b> — mute / unmute</p>
         </div>
         <button class="btn-start" id="btn-start">PRESS SPACE TO START</button>
       </div>
@@ -80,6 +81,7 @@
       <div class="footer-left">
         <span class="hud-label">STATUS:</span>
         <span class="hud-value" id="hud-status">alive</span>
+        <span class="hud-mute" id="hud-mute">🔊 SOUND ON</span>
       </div>
       <div class="footer-center">
         <p class="slogan">
