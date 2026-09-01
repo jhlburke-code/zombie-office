@@ -1,10 +1,14 @@
 // Zombie Office — Karlsruhe
-// v5: stripped input handling to the bare minimum. window.onkeydown
-// direct assignment, single move-intent object (move.dx/move.dy),
-// no e.code, no focus tricks, no capture phase.
+// v5: stripped input to the most basic possible form.
+// Uses window.onkeydown / window.onkeyup directly — works in every browser
+// since IE5. No e.code, no capture phase, no focus tricks. Just the key.
 
 (() => {
   'use strict';
+
+  // ============================================================
+  // CONSTANTS
+  // ============================================================
 
   const TILE_SIZE = 32;
   const CANVAS_W = 960;
@@ -291,6 +295,10 @@
     { name: 'holger', sprite: 'holger', displayName: 'HOLGER · IT', path: pathOf([14, 16], [26, 16], [26, 18], [14, 18]) },
   ];
 
+  // ============================================================
+  // GAME STATE
+  // ============================================================
+
   const game = {
     state: 'title',
     timeStart: 0,
@@ -300,43 +308,64 @@
     meetingsAvoided: 0,
   };
 
-  // Single source of movement truth.
+  // Movement intent — single source of truth for "is the player trying to move".
+  // Set directly by keyboard handlers, read by updatePlayer.
   const move = { dx: 0, dy: 0 };
 
-  // On-canvas flash for each detected keypress.
+  // Big visible flash when a keypress lands. Diagnostic for the user.
   let lastKey = null;
   let lastKeyTime = 0;
 
-  // INPUT — stripped to absolute minimum.
+  // ============================================================
+  // INPUT — the absolute simplest possible.
+  // window.onkeydown = fn replaces any previous handler. No event
+  // options, no capture, no document/window duplication. Just the
+  // property. Works in IE5, works in 2024.
+  // ============================================================
+
   window.onkeydown = function(e) {
+    // Log so the user can see in DevTools Console.
     try { console.log('[Pulse] keydown', e.key); } catch (_) {}
+
     const k = String(e.key || '').toLowerCase();
+
     if (k === 'w' || k === 'arrowup')    { move.dy = -1; game.player.dir = 'up'; }
     else if (k === 's' || k === 'arrowdown')  { move.dy =  1; game.player.dir = 'down'; }
     else if (k === 'a' || k === 'arrowleft')  { move.dx = -1; game.player.dir = 'left'; }
     else if (k === 'd' || k === 'arrowright') { move.dx =  1; game.player.dir = 'right'; }
-    else if (k === ' ' || k === 'spacebar')  { handleActionKey(); }
-    else if (k === 'e')                     { handleInteractKey(); }
-    else if (k === 'r')                     { resetPlayer(); }
-    else if (k === 'm')                     { toggleMute(); }
-    if ('wasd'.includes(k) || k.startsWith('arrow')) {
+    else if (k === ' ' || k === 'spacebar' || k === 'space') { handleActionKey(); }
+    else if (k === 'e') { handleInteractKey(); }
+    else if (k === 'r') { resetPlayer(); }
+    else if (k === 'm') { toggleMute(); }
+
+    if (k === 'w' || k === 'a' || k === 's' || k === 'd') {
+      // Prevent page scroll when arrows accidentally fire.
       e.preventDefault();
+      // Flash indicator so the user sees their press was detected.
       lastKey = k.toUpperCase();
       lastKeyTime = performance.now();
     }
   };
+
   window.onkeyup = function(e) {
     const k = String(e.key || '').toLowerCase();
     if (k === 'w' || k === 'arrowup' || k === 's' || k === 'arrowdown') move.dy = 0;
     if (k === 'a' || k === 'arrowleft' || k === 'd' || k === 'arrowright') move.dx = 0;
   };
-  window.onblur = function() { move.dx = 0; move.dy = 0; };
+
+  // Lose focus reset — but only clear move intent, not the keys object
+  // (we don't use a keys object anymore).
+  window.onblur = function() {
+    move.dx = 0;
+    move.dy = 0;
+  };
 
   function toggleMute() {
     audioMuted = !audioMuted;
     const el = document.getElementById('hud-mute');
     if (el) el.textContent = audioMuted ? '🔇 MUTED' : '🔊 SOUND ON';
   }
+
   function resetPlayer() {
     initGameState();
     if (game.state !== 'playing') game.state = 'playing';
@@ -345,6 +374,7 @@
     document.getElementById('overlay-dialogue').hidden = true;
     hideDialogue();
   }
+
   function handleActionKey() {
     if (game.state === 'title') { startGame(); return; }
     if (game.state === 'caught') { restartGame(); return; }
@@ -352,13 +382,19 @@
     if (game.state === 'dialogue') { advanceDialogue(); return; }
     if (game.state === 'playing') { talkToNearestZombie(); }
   }
+
   function handleInteractKey() {
     if (game.state !== 'playing') return;
     tryExit();
   }
 
+  // ============================================================
+  // AUDIO
+  // ============================================================
+
   let audioCtx = null;
   let audioMuted = false;
+
   function ensureAudio() {
     if (audioCtx) return audioCtx;
     const Ctor = window.AudioContext || window.webkitAudioContext;
@@ -366,39 +402,56 @@
     try { audioCtx = new Ctor(); } catch (e) { return null; }
     return audioCtx;
   }
-  function beep(freq, durMs, type = 'square', volume = 0.06) {
+
+  function beep(freq, durationMs, type = 'square', volume = 0.06) {
     if (audioMuted) return;
-    const ctx = ensureAudio(); if (!ctx) return;
+    const ctx = ensureAudio();
+    if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume();
-    const now = ctx.currentTime, dur = durMs / 1000;
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    const dur = durationMs / 1000;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
     osc.type = type;
     osc.frequency.setValueAtTime(freq, now);
     gain.gain.setValueAtTime(volume, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    osc.start(now); osc.stop(now + dur);
+    osc.start(now);
+    osc.stop(now + dur);
   }
-  function sweep(f1, f2, durMs, type = 'sawtooth', volume = 0.08) {
+
+  function sweep(freqStart, freqEnd, durationMs, type = 'sawtooth', volume = 0.08) {
     if (audioMuted) return;
-    const ctx = ensureAudio(); if (!ctx) return;
+    const ctx = ensureAudio();
+    if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume();
-    const now = ctx.currentTime, dur = durMs / 1000;
-    const osc = ctx.createOscillator(), gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    const dur = durationMs / 1000;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
     osc.type = type;
-    osc.frequency.setValueAtTime(f1, now);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(20, f2), now + dur);
+    osc.frequency.setValueAtTime(freqStart, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), now + dur);
     gain.gain.setValueAtTime(volume, now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
-    osc.start(now); osc.stop(now + dur);
+    osc.start(now);
+    osc.stop(now + dur);
   }
+
   function sfxStep()  { beep(90, 35, 'square', 0.04); }
   function sfxTalk()  { beep(440, 60, 'square', 0.08); }
   function sfxCatch() { sweep(220, 80, 700, 'sawtooth', 0.10); }
   function sfxWin()   { beep(523, 90, 'square', 0.09);
                        setTimeout(() => beep(659, 90, 'square', 0.09), 90);
                        setTimeout(() => beep(784, 200, 'square', 0.10), 180); }
+
+  // ============================================================
+  // GAME FLOW
+  // ============================================================
 
   function startGame() {
     const ov = document.getElementById('overlay-title');
@@ -473,13 +526,17 @@
   function tryMove(entity, dx, dy) {
     const nx = entity.x + dx;
     const ny = entity.y + dy;
-    const spriteHalf = 12;
+    // Generous collision buffer so the player never gets permanently pinned
+    // against a wall. 4 px of clearance is enough to feel natural without
+    // letting the sprite visibly clip into walls.
+    const spriteHalf = entity === game.player ? 4 : 12;
     if (isWalkable(nx + Math.sign(dx) * spriteHalf, entity.y)) entity.x = nx;
     if (isWalkable(entity.x, ny + Math.sign(dy) * spriteHalf)) entity.y = ny;
   }
 
   function updatePlayer() {
-    const dx = move.dx, dy = move.dy;
+    const dx = move.dx;
+    const dy = move.dy;
     const moving = dx !== 0 || dy !== 0;
     if (moving) {
       const len = Math.hypot(dx, dy);
@@ -488,7 +545,9 @@
       tryMove(game.player, sx, sy);
       game.player.walkTimer += 1;
       game.player.stepSoundTimer += 1;
-      if (game.player.walkTimer % 12 === 0) game.player.walkFrame = 1 - game.player.walkFrame;
+      if (game.player.walkTimer % 12 === 0) {
+        game.player.walkFrame = 1 - game.player.walkFrame;
+      }
       if (game.player.stepSoundTimer % STEP_SOUND_EVERY === 0) sfxStep();
     } else {
       game.player.walkFrame = 0;
@@ -543,7 +602,9 @@
     if (!exit) return;
     const ex = exit.x * TILE_SIZE + TILE_SIZE / 2;
     const ey = exit.y * TILE_SIZE + TILE_SIZE / 2;
-    if (Math.hypot(game.player.x - ex, game.player.y - ey) < TILE_SIZE * 1.2) win();
+    if (Math.hypot(game.player.x - ex, game.player.y - ey) < TILE_SIZE * 1.2) {
+      win();
+    }
   }
 
   function talkToNearestZombie() {
@@ -572,7 +633,9 @@
       game.state = 'playing';
       game.activeDialogue = null;
       hideDialogue();
-    } else showDialogue();
+    } else {
+      showDialogue();
+    }
   }
 
   function showDialogue() {
@@ -582,14 +645,18 @@
     document.getElementById('dialogue-text').textContent = d.lines[d.idx];
     document.getElementById('overlay-dialogue').hidden = false;
   }
-  function hideDialogue() { document.getElementById('overlay-dialogue').hidden = true; }
+
+  function hideDialogue() {
+    document.getElementById('overlay-dialogue').hidden = true;
+  }
 
   function showCaughtScreen() {
     const hours = Math.floor(Math.random() * 6) + 3;
     const mins = Math.floor(Math.random() * 60);
     document.getElementById('meeting-duration').textContent = hours + 'h ' + mins.toString().padStart(2, '0') + 'm';
     const shuffled = [...AGENDA_ITEMS].sort(() => Math.random() - 0.5);
-    document.getElementById('meeting-list').innerHTML = shuffled.slice(0, 10).map((item, i) =>
+    const selected = shuffled.slice(0, 10);
+    document.getElementById('meeting-list').innerHTML = selected.map((item, i) =>
       i < 3 ? `<li class="done">${item}</li>` : `<li>${item}</li>`
     ).join('');
     document.getElementById('overlay-caught').hidden = false;
@@ -606,7 +673,10 @@
     document.getElementById('overlay-win').hidden = false;
   }
 
+  // ============================================================
   // RENDERING
+  // ============================================================
+
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
@@ -621,12 +691,15 @@
 
   function drawTile(ctx, ch, x, y) {
     if (ch !== '#') {
-      ctx.fillStyle = '#5C4A3D'; ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+      ctx.fillStyle = '#5C4A3D';
+      ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
       ctx.fillStyle = '#4D3D31';
       const dot = ((x >> 4) + (y >> 4)) & 1;
       if (dot) {
-        ctx.fillRect(x + 4, y + 4, 2, 2); ctx.fillRect(x + 18, y + 12, 2, 2);
-        ctx.fillRect(x + 8, y + 22, 2, 2); ctx.fillRect(x + 24, y + 26, 2, 2);
+        ctx.fillRect(x + 4, y + 4, 2, 2);
+        ctx.fillRect(x + 18, y + 12, 2, 2);
+        ctx.fillRect(x + 8, y + 22, 2, 2);
+        ctx.fillRect(x + 24, y + 26, 2, 2);
       }
     }
     switch (ch) {
@@ -700,8 +773,9 @@
     const drawables = [...game.zombies, { isPlayer: true, x: game.player.x, y: game.player.y, dir: game.player.dir, walkFrame: game.player.walkFrame }];
     drawables.sort((a, b) => a.y - b.y);
     for (const e of drawables) {
-      if (e.isPlayer) drawSpriteCentered(getPlayerSprite(e.dir, e.walkFrame), e.x, e.y);
-      else {
+      if (e.isPlayer) {
+        drawSpriteCentered(getPlayerSprite(e.dir, e.walkFrame), e.x, e.y);
+      } else {
         drawSpriteCentered(spriteCanvas(e.name, 0), e.x, e.y);
         if (e.alert > 0) {
           ctx.fillStyle = e.alert > 60 ? '#CC2229' : '#F7D14B';
@@ -750,7 +824,9 @@
       else { statusEl.textContent = 'alive'; statusEl.style.color = '#FFFFFF'; }
     }
     const nearestEl = document.getElementById('hud-nearest');
-    if (nearestEl) nearestEl.textContent = bestDist < 600 ? nearestName + ' (' + Math.round(bestDist) + ')' : '—';
+    if (nearestEl) {
+      nearestEl.textContent = bestDist < 600 ? nearestName + ' (' + Math.round(bestDist) + ')' : '—';
+    }
     const muteEl = document.getElementById('hud-mute');
     if (muteEl) muteEl.textContent = audioMuted ? '🔇 MUTED' : '🔊 SOUND ON';
   }
@@ -765,6 +841,7 @@
     requestAnimationFrame(loop);
   }
 
+  // Buttons
   document.getElementById('btn-start').addEventListener('click', () => {
     ensureAudio();
     startGame();
