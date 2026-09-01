@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pulse — WASD Input Test</title>
+<style>
+  body {
+    background: #1B3A6B;
+    color: #FFFFFF;
+    font-family: 'Press Start 2P', monospace;
+    margin: 0;
+    padding: 32px;
+    min-height: 100vh;
+    box-sizing: border-box;
+  }
+  h1 { font-size: 18px; color: #CC2229; margin: 0 0 24px; letter-spacing: 0.05em; }
+  p  { font-size: 12px; color: rgba(255,255,255,0.85); line-height: 1.7; margin: 0 0 14px; max-width: 720px; }
+  .stage {
+    background: #142d54;
+    border: 2px solid #CC2229;
+    border-radius: 4px;
+    width: 800px;
+    height: 500px;
+    position: relative;
+    margin: 20px 0;
+    overflow: hidden;
+  }
+  .player {
+    position: absolute;
+    width: 32px;
+    height: 32px;
+    background: #5BC8D5;
+    border: 3px solid #CC2229;
+    top: 234px;
+    left: 384px;
+    transition: transform 0.05s linear;
+  }
+  .player.face-up    { background: #5BC8D5; }
+  .player.face-down  { background: #F7D14B; }
+  .player.face-left  { background: #A04040; }
+  .player.face-right { background: #7AA84D; }
+  .hud {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+    font-size: 10px;
+  }
+  .hud .box {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.18);
+    padding: 12px;
+    border-radius: 4px;
+    color: rgba(255,255,255,0.85);
+  }
+  .hud .box b { color: #F7D14B; font-weight: 400; }
+  .log {
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 4px;
+    padding: 12px;
+    font-size: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.5;
+  }
+  .log .ev { color: rgba(255,255,255,0.7); }
+  .log .ev-move { color: #7AA84D; }
+  .log .ev-stop { color: #F7D14B; }
+  .log .ev-other { color: #5BC8D5; }
+  .footer { margin-top: 24px; font-size: 10px; color: rgba(255,255,255,0.4); }
+  .footer b { color: #CC2229; }
+</style>
+</head>
+<body>
+
+<h1>WASD INPUT TEST</h1>
+<p>This page exists to answer ONE question: when you press W/A/S/D, does anything happen?</p>
+
+<div class="hud">
+  <div class="box">STATE: <b id="state">READY</b></div>
+  <div class="box">LAST KEY: <b id="lastKey">&mdash;</b></div>
+  <div class="box">PLAYER POS: <b id="pos">(0, 0)</b></div>
+  <div class="box">PRESSED: <b id="pressed">none</b></div>
+</div>
+
+<div class="stage">
+  <div class="player face-down" id="player"></div>
+</div>
+
+<div class="log" id="log">
+  <div class="ev">&mdash; waiting for input &mdash;</div>
+</div>
+
+<div class="footer">
+  <b>Test procedure:</b> click anywhere on the page first to ensure focus, then press and hold W/A/S/D. The cyan square should move, the LAST KEY indicator should flash, and the PRESSED indicator should show which keys are currently held. If NONE of those change when you press keys, the problem is your browser/env, not the game.
+</div>
+
+<script>
+  const log = document.getElementById('log');
+  const stateEl = document.getElementById('state');
+  const lastKeyEl = document.getElementById('lastKey');
+  const posEl = document.getElementById('pos');
+  const pressedEl = document.getElementById('pressed');
+  const player = document.getElementById('player');
+
+  let px = 384, py = 234;
+  let faceClass = 'face-down';
+
+  const logEl = (msg, cls) => {
+    const d = document.createElement('div');
+    d.className = 'ev ' + cls;
+    d.textContent = msg;
+    log.insertBefore(d, log.firstChild);
+    while (log.childNodes.length > 50) log.removeChild(log.lastChild);
+  };
+
+  const move = { up: false, down: false, left: false, right: false };
+
+  // The absolute simplest possible input handling.
+  window.onkeydown = function(e) {
+    const k = e.key.toLowerCase();
+    let action = 'OTHER';
+    if      (k === 'w' || k === 'arrowup')    { move.up    = true; faceClass = 'face-up';    action = 'MOVE'; }
+    else if (k === 's' || k === 'arrowdown')  { move.down  = true; faceClass = 'face-down';  action = 'MOVE'; }
+    else if (k === 'a' || k === 'arrowleft')  { move.left  = true; faceClass = 'face-left';  action = 'MOVE'; }
+    else if (k === 'd' || k === 'arrowright') { move.right = true; faceClass = 'face-right'; action = 'MOVE'; }
+
+    stateEl.textContent = 'KEY DOWN';
+    lastKeyEl.textContent = k.toUpperCase() + ' (code=' + (e.code || '?') + ')';
+    updatePressed();
+    logEl(`[${(new Date()).toISOString().substr(11,12)}] keydown "${e.key}" code="${e.code}" -> ${action}`, action === 'MOVE' ? 'ev-move' : 'ev-other');
+
+    if (['w','a','s','d'].includes(k) || k.startsWith('arrow')) e.preventDefault();
+  };
+
+  window.onkeyup = function(e) {
+    const k = e.key.toLowerCase();
+    let action = 'OTHER';
+    if      (k === 'w' || k === 'arrowup')    { move.up    = false; action = 'STOP'; }
+    else if (k === 's' || k === 'arrowdown')  { move.down  = false; action = 'STOP'; }
+    else if (k === 'a' || k === 'arrowleft')  { move.left  = false; action = 'STOP'; }
+    else if (k === 'd' || k === 'arrowright') { move.right = false; action = 'STOP'; }
+
+    stateEl.textContent = 'KEY UP';
+    logEl(`[${(new Date()).toISOString().substr(11,12)}] keyup   "${e.key}"`, action === 'STOP' ? 'ev-stop' : 'ev-other');
+    updatePressed();
+  };
+
+  function updatePressed() {
+    const arr = [];
+    if (move.up)    arr.push('W');
+    if (move.down)  arr.push('S');
+    if (move.left)  arr.push('A');
+    if (move.right) arr.push('D');
+    pressedEl.textContent = arr.length ? arr.join('+') : 'none';
+    player.className = 'player ' + faceClass;
+  }
+
+  // Movement loop
+  setInterval(() => {
+    const speed = 4;
+    let nx = px, ny = py;
+    if (move.up)    ny -= speed;
+    if (move.down)  ny += speed;
+    if (move.left)  nx -= speed;
+    if (move.right) nx += speed;
+    nx = Math.max(0, Math.min(800 - 32, nx));
+    ny = Math.max(0, Math.min(500 - 32, ny));
+    px = nx; py = ny;
+    player.style.left = px + 'px';
+    player.style.top  = py + 'px';
+    posEl.textContent = `(${Math.round(px)}, ${Math.round(py)})`;
+  }, 16);
+
+  logEl('Page loaded - try pressing W/A/S/D now.', 'ev-other');
+</script>
+
+</body>
+</html>
